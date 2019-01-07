@@ -1,0 +1,12 @@
+[app]
+name: WebOfTXT
+category: IoT
+author: Martin Giger
+icon: icon.png
+desc: WebOfThings protocol for the TXT. Icon uses spider web under CC by 3.0 by Denis Frezzato.
+url: https://github.com/freaktechnik/weboftxt
+exec: main.py
+managed: yes
+uuid: 0b54347c-f22c-11e8-be35-37e8f1024a53
+version: 1.0
+firmware: 0.9
