@@ -355,28 +355,31 @@ class wotApplication(TouchApplication):
         elif type == 'light':
             self.outputs[index] = self.txt.C_OUTPUT
             for offset in range(1, 3):
-                plug = 'O' + str((index * 2) + offset)
-                self.thing.add_property(
-                    webthing.Property(
-                        self.thing,
-                        plug,
-                        webthing.Value(
-                            1,
-                            lambda new_value: self.update_output(
-                                index,
-                                new_value,
-                                offset - 1
-                            )
-                        ),
-                        metadata={
-                            '@type': 'LevelProperty',
-                            'label': plug,
-                            'type': 'integer',
-                            'minimum': 1,
-                            'maximum': 512
-                        }
+                self.addLight(index, offset)
+
+    def addLight(self, index, offset):
+        plug = 'O' + str((index * 2) + offset)
+        self.thing.add_property(
+            webthing.Property(
+                self.thing,
+                plug,
+                webthing.Value(
+                    1,
+                    lambda new_value: self.update_output(
+                        index,
+                        new_value,
+                        offset
                     )
-                )
+                ),
+                metadata={
+                    '@type': 'LevelProperty',
+                    'label': plug,
+                    'type': 'integer',
+                    'minimum': 1,
+                    'maximum': 512
+                }
+            )
+        )
 
     def addCounter(self, index):
         self.thing.add_property(
@@ -519,9 +522,9 @@ class wotApplication(TouchApplication):
             rec.setText('start')
             rec.setDisabled(False)
 
-    def update_output(self, index, value, offset=0):
+    def update_output(self, index, value, offset=1):
         if self.outputs[index] == self.txt.C_MOTOR:
-            self.txt.motor(index).setSpeed(value)
+            self.txt.motor(index + offset).setSpeed(value)
         else:
             self.txt.output((index * 2) + offset).setLevel(value)
 
