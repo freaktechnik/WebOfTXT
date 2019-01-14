@@ -12,7 +12,8 @@ from pathlib import Path
 import cv2
 import time
 import base64
-import urllib
+import tornado.web
+from tempfile import TemporaryDirectory
 from copy import copy
 from TouchStyle import *
 
@@ -117,7 +118,7 @@ class ServerThread(threading.Thread):
 
 
 class CameraProperty(webthing.Property):
-    def __init__(self, thing, name, cam, metadata=None):
+    def __init__(self, thing, name, cam, temp_dir, metadata=None):
         super(CameraProperty, self).__init__(
             thing,
             name,
@@ -125,12 +126,26 @@ class CameraProperty(webthing.Property):
             metadata
         )
         self.cam = cam
+        self.temp_dir = temp_dir
         self.cap = None
         self.last_update = None
+        self.file_name = self.name + '.jpg'
         self.metadata['@type'] = 'ImageProperty'
+        self.metadata['links'] = [
+            {
+                'href': '/static/' + self.file_name,
+                'mediaType': 'image/jpeg'
+            }
+        ]
 
     def start_cap(self):
         self.cap = cv2.VideoCapture(self.cam)
+        # self.writer = cv2.VideoWriter(
+        #     os.path.join(self.temp_dir.name, 'video' + str(self.cam) + '.avi'),
+        #     cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'),
+        #     10,
+        #     (320, 240)
+        # )
         if self.cap.isOpened():
             self.cap.set(3, 320)
             self.cap.set(4, 240)
@@ -139,8 +154,10 @@ class CameraProperty(webthing.Property):
     def stop_cap(self):
         if self.cap is not None:
             self.cap.release()
+            # self.writer.release()
         self.cap = None
         self.last_update = None
+        self.writer = None
 
     def capture(self):
         if self.last_update is not None and self.last_update + 0.1 > time.time():
@@ -148,18 +165,14 @@ class CameraProperty(webthing.Property):
 
         self.last_update = time.time()
         frame = self.cap.read()[1]
-        retval, image = cv2.imencode('.jpg', frame)
-        self.image = 'data:image/jpeg;base64,' + base64.b64encode(image).decode('ascii')
+        # self.writer.write(frame)
+        cv2.imwrite(
+            os.path.join(self.temp_dir.name, self.file_name),
+            frame
+        )
 
     def as_property_description(self):
         description = copy(self.metadata)
-        if self.cap is not None:
-            description['links'] = [
-                {
-                    'href': self.image,
-                    'mediaType': 'image/jpeg'
-                }
-            ]
         return description
 
 
@@ -210,6 +223,7 @@ class wotApplication(TouchApplication):
         self.inputButtons = []
         self.outputButtons = []
         self.cams = []
+        self.temp_dir = None
 
         if not self.txt:
             err_msg = QLabel('Error connectiong to IO server')
@@ -550,13 +564,17 @@ class wotApplication(TouchApplication):
         )
 
     def addCamera(self, cam):
+        if self.temp_dir is None:
+            self.temp_dir = TemporaryDirectory()
         self.thing.add_property(
             CameraProperty(
                 self.thing,
                 'camera' + str(cam),
                 cam,
+                self.temp_dir,
                 metadata={
-                    'title': 'Camera'
+                    'title': 'Camera',
+                    'readOnly': True
                 }
             )
         )
@@ -595,6 +613,18 @@ class wotApplication(TouchApplication):
                     webthing.SingleThing(self.thing),
                     port=8888
                 )
+            self.server.app.add_handlers(
+                r'.*',
+                [
+                    (
+                        r'/static/(.*)',
+                        tornado.web.StaticFileHandler,
+                        {
+                            'path': self.temp_dir.name
+                        }
+                    )
+                ]
+            )
             self.thread = ServerThread(self.server)
 
             self.timer.start(1000)
