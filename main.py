@@ -7,6 +7,13 @@ import webthing
 import threading
 import asyncio
 import uuid
+import os
+from pathlib import Path
+import cv2
+import time
+import base64
+import urllib
+from copy import copy
 from TouchStyle import *
 
 # TODO camera -> https://iot.mozilla.org/schemas/#Camera
@@ -108,6 +115,54 @@ class ServerThread(threading.Thread):
         self.server.stop()
         self.event_loop.stop()
 
+
+class CameraProperty(webthing.Property):
+    def __init__(self, thing, name, cam, metadata=None):
+        super(CameraProperty, self).__init__(
+            thing,
+            name,
+            webthing.Value(None),
+            metadata
+        )
+        self.cam = cam
+        self.cap = None
+        self.last_update = None
+        self.metadata['@type'] = 'ImageProperty'
+
+    def start_cap(self):
+        self.cap = cv2.VideoCapture(self.cam)
+        if self.cap.isOpened():
+            self.cap.set(3, 320)
+            self.cap.set(4, 240)
+            self.cap.set(5, 10)
+
+    def stop_cap(self):
+        if self.cap is not None:
+            self.cap.release()
+        self.cap = None
+        self.last_update = None
+
+    def capture(self):
+        if self.last_update is not None and self.last_update + 0.1 > time.time():
+            return
+
+        self.last_update = time.time()
+        frame = self.cap.read()[1]
+        retval, image = cv2.imencode('.jpg', frame)
+        self.image = 'data:image/jpeg;base64,' + base64.b64encode(image).decode('ascii')
+
+    def as_property_description(self):
+        description = copy(self.metadata)
+        if self.cap is not None:
+            description['links'] = [
+                {
+                    'href': self.image,
+                    'mediaType': 'image/jpeg'
+                }
+            ]
+        return description
+
+
 class wotApplication(TouchApplication):
     COLOR_MAP = {
         'rot': '#ff0000',
@@ -154,6 +209,7 @@ class wotApplication(TouchApplication):
 
         self.inputButtons = []
         self.outputButtons = []
+        self.cams = []
 
         if not self.txt:
             err_msg = QLabel('Error connectiong to IO server')
@@ -176,6 +232,17 @@ class wotApplication(TouchApplication):
 
             self.addPlaySound()
             self.addStateProps()
+
+            givenCam = os.environ.get('FTC_CAM')
+            cam = None
+            if givenCam is None:
+                cam = 0
+            else:
+                cam = int(givenCam)
+
+            camPath = Path('/dev/video' + str(cam))
+            if camPath.exists():
+                self.addCamera(cam)
 
             main_page = self.buildMainPage()
             input_page = self.buildInputPage()
@@ -288,7 +355,8 @@ class wotApplication(TouchApplication):
             self.addCapability('PushButton')
             self.inputs[index] = (self.txt.C_SWITCH, self.txt.C_DIGITAL)
             self.thing.add_available_event('pressedEvent' + name, {
-                '@type': 'PressedEvent'
+                '@type': 'PressedEvent',
+                'title': name + ' pressed'
             })
         elif type == 'resistor':
             rawType = 'number'
@@ -322,7 +390,7 @@ class wotApplication(TouchApplication):
                 name,
                 value,
                 metadata={
-                    'label': name,
+                    'title': name,
                     'type': rawType,
                     'readOnly': True,
                     'unit': unit,
@@ -345,7 +413,7 @@ class wotApplication(TouchApplication):
                     ),
                     metadata={
                         '@type': 'LevelProperty',
-                        'label': plug,
+                        'title': plug,
                         'type': 'integer',
                         'minimum': -512,
                         'maximum': 512
@@ -373,7 +441,7 @@ class wotApplication(TouchApplication):
                 ),
                 metadata={
                     '@type': 'LevelProperty',
-                    'label': plug,
+                    'title': plug,
                     'type': 'integer',
                     'minimum': 1,
                     'maximum': 512
@@ -399,7 +467,7 @@ class wotApplication(TouchApplication):
         self.thing.add_available_action(
             'resetCounter',
             {
-                'label': 'Reset counter',
+                'title': 'Reset counter',
                 'description': 'Reset C1-C4',
                 'input': {
                     'type': 'string',
@@ -413,7 +481,7 @@ class wotApplication(TouchApplication):
         self.thing.add_available_action(
             'playSound',
             {
-                'label': 'Play sound',
+                'title': 'Play sound',
                 'description': 'Play a sound on the TXT',
                 'input': {
                     'type': 'object',
@@ -448,7 +516,7 @@ class wotApplication(TouchApplication):
                     'type': 'number',
                     'readOnly': True,
                     'unit': 'volt',
-                    'label': 'Input voltage'
+                    'title': 'Input voltage'
                 }
             )
         )
@@ -462,7 +530,7 @@ class wotApplication(TouchApplication):
                     'type': 'number',
                     'readOnly': True,
                     'unit': 'volt',
-                    'label': 'Reference voltage'
+                    'title': 'Reference voltage'
                 }
             )
         )
@@ -475,11 +543,37 @@ class wotApplication(TouchApplication):
                     # '@type': 'TemperatureProperty',
                     'type': 'number',
                     'readOnly': True,
-                    'label': 'Temperature'
+                    'title': 'Temperature'
                     # 'unit': 'degrees celsius'
                 }
             )
         )
+
+    def addCamera(self, cam):
+        self.thing.add_property(
+            CameraProperty(
+                self.thing,
+                'camera' + str(cam),
+                cam,
+                metadata={
+                    'title': 'Camera'
+                }
+            )
+        )
+        self.addCapability('Camera')
+        self.cams.append(cam)
+
+    def startCams(self):
+        for cam in self.cams:
+            self.thing.find_property('camera' + str(cam)).start_cap()
+
+    def stopCams(self):
+        for cam in self.cams:
+            self.thing.find_property('camera' + str(cam)).stop_cap()
+
+    def capCams(self):
+        for cam in self.cams:
+            self.thing.find_property('camera' + str(cam)).capture()
 
     def start(self):
         rec = self.sender()
@@ -504,6 +598,7 @@ class wotApplication(TouchApplication):
             self.thread = ServerThread(self.server)
 
             self.timer.start(1000)
+            self.startCams()
 
             try:
                 self.thread.start()
@@ -512,6 +607,7 @@ class wotApplication(TouchApplication):
             except:
                 self.thread.stop()
                 self.server.stop()
+                self.stopCams()
                 self.server = None
                 self.thread = None
         else:
@@ -519,6 +615,7 @@ class wotApplication(TouchApplication):
             self.thread = None
             self.server = None
             self.timer.stop()
+            self.stopCams()
             rec.setText('start')
             rec.setDisabled(False)
 
@@ -579,6 +676,8 @@ class wotApplication(TouchApplication):
         #             actualIndex = (index * 2) + i
         #             pwm = self.txt.getPwm(actualIndex)
         #             self.set_property('O' + str(actualIndex + 1), pwm)
+
+        self.capCams()
 
         # Update TXT state propeties
         self.set_property(
