@@ -117,65 +117,6 @@ class ServerThread(threading.Thread):
         self.event_loop.stop()
 
 
-class CameraProperty(webthing.Property):
-    def __init__(self, thing, name, cam, temp_dir, metadata=None):
-        super(CameraProperty, self).__init__(
-            thing,
-            name,
-            webthing.Value(None),
-            metadata
-        )
-        self.cam = cam
-        self.temp_dir = temp_dir
-        self.cap = None
-        self.last_update = None
-        self.file_name = self.name + '.jpg'
-        self.metadata['@type'] = 'ImageProperty'
-        self.metadata['links'] = [
-            {
-                'href': '/static/' + self.file_name,
-                'mediaType': 'image/jpeg'
-            }
-        ]
-
-    def start_cap(self):
-        self.cap = cv2.VideoCapture(self.cam)
-        # self.writer = cv2.VideoWriter(
-        #     os.path.join(self.temp_dir.name, 'video' + str(self.cam) + '.avi'),
-        #     cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'),
-        #     10,
-        #     (320, 240)
-        # )
-        if self.cap.isOpened():
-            self.cap.set(3, 320)
-            self.cap.set(4, 240)
-            self.cap.set(5, 10)
-
-    def stop_cap(self):
-        if self.cap is not None:
-            self.cap.release()
-            # self.writer.release()
-        self.cap = None
-        self.last_update = None
-        self.writer = None
-
-    def capture(self):
-        if self.last_update is not None and self.last_update + 0.1 > time.time():
-            return
-
-        self.last_update = time.time()
-        frame = self.cap.read()[1]
-        # self.writer.write(frame)
-        cv2.imwrite(
-            os.path.join(self.temp_dir.name, self.file_name),
-            frame
-        )
-
-    def as_property_description(self):
-        description = copy(self.metadata)
-        return description
-
-
 class wotApplication(TouchApplication):
     COLOR_MAP = {
         'rot': '#ff0000',
@@ -223,6 +164,8 @@ class wotApplication(TouchApplication):
         self.inputButtons = []
         self.outputButtons = []
         self.cams = []
+        self.caps = {}
+        self.last_update = None
         self.temp_dir = None
 
         if not self.txt:
@@ -567,14 +510,21 @@ class wotApplication(TouchApplication):
         if self.temp_dir is None:
             self.temp_dir = TemporaryDirectory()
         self.thing.add_property(
-            CameraProperty(
+            webthing.Property(
                 self.thing,
                 'camera' + str(cam),
-                cam,
-                self.temp_dir,
+                webthing.Value(None),
                 metadata={
                     'title': 'Camera',
-                    'readOnly': True
+                    'readOnly': True,
+                    '@type': 'ImageProperty',
+                    'links': [
+                        {
+                            'rel': 'alternate',
+                            'href': '/static/camera' + str(cam) + '.jpg',
+                            'mediaType': 'image/jpeg'
+                        }
+                    ]
                 }
             )
         )
@@ -583,15 +533,38 @@ class wotApplication(TouchApplication):
 
     def startCams(self):
         for cam in self.cams:
-            self.thing.find_property('camera' + str(cam)).start_cap()
+            self.caps[cam] = cv2.VideoCapture(cam)
+            # self.writer = cv2.VideoWriter(
+            #     os.path.join(self.temp_dir.name, 'video' + str(self.cam) + '.avi'),
+            #     cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'),
+            #     10,
+            #     (320, 240)
+            # )
+            if self.caps[cam].isOpened():
+                self.caps[cam].set(3, 320)
+                self.caps[cam].set(4, 240)
+                self.caps[cam].set(5, 10)
 
     def stopCams(self):
         for cam in self.cams:
-            self.thing.find_property('camera' + str(cam)).stop_cap()
+            if self.caps[cam] is not None:
+                self.caps[cam].release()
+                # self.writer.release()
+            # self.writer = None
+            self.caps[cam] = None
+        self.last_update = None
 
     def capCams(self):
+        if self.last_update is not None and self.last_update + 0.1 > time.time():
+            return
+        self.last_update = time.time()
         for cam in self.cams:
-            self.thing.find_property('camera' + str(cam)).capture()
+            frame = self.caps[cam].read()[1]
+            # self.writer.write(frame)
+            cv2.imwrite(
+                os.path.join(self.temp_dir.name, 'camera' + str(cam) + '.jpg'),
+                frame
+            )
 
     def start(self):
         rec = self.sender()
@@ -611,20 +584,17 @@ class wotApplication(TouchApplication):
             if self.server is None:
                 self.server = webthing.WebThingServer(
                     webthing.SingleThing(self.thing),
-                    port=8888
+                    port=8888,
+                    additional_routes=[
+                        (
+                            r'/static/(.*)',
+                            tornado.web.StaticFileHandler,
+                            {
+                                'path': self.temp_dir.name
+                            }
+                        )
+                    ]
                 )
-            self.server.app.add_handlers(
-                r'.*',
-                [
-                    (
-                        r'/static/(.*)',
-                        tornado.web.StaticFileHandler,
-                        {
-                            'path': self.temp_dir.name
-                        }
-                    )
-                ]
-            )
             self.thread = ServerThread(self.server)
 
             self.timer.start(1000)
