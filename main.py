@@ -15,6 +15,7 @@ import base64
 import tornado.web
 from tempfile import TemporaryDirectory
 from copy import copy
+import netifaces
 from TouchStyle import *
 
 # TODO camera -> https://iot.mozilla.org/schemas/#Camera
@@ -179,6 +180,8 @@ class wotApplication(TouchApplication):
                 ['MultiLevelSwitch'],
                 'fischertechnik TXT ' + str(self.txt.getVersionNumber())
             )
+            ip = netifaces.ifaddresses('wlan0')[netifaces.AF_INET][0]['addr']
+            self.thing.set_ui_href('http://' + ip + '/')
             self.server = None
             self.thing.txt = self.txt
             self.timer = QTimer(self)
