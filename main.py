@@ -17,7 +17,6 @@ from tempfile import TemporaryDirectory
 from TouchStyle import *
 
 # TODO persist last configuration?
-# TODO disable tabs while running
 # https://github.com/ftrobopy/ftrobopy/blob/master/manual.pdf
 
 
@@ -255,6 +254,7 @@ class wotApplication(TouchApplication):
             tabBar.addTab(input_page, 'Inputs')
             tabBar.addTab(output_page, 'Outputs')
             self.w.setCentralWidget(tabBar)
+            self.tabs = tabBar
 
         self.w.show()
         self.exec_()
@@ -656,12 +656,16 @@ class wotApplication(TouchApplication):
                 self.thread.start()
                 rec.setText('stop')
                 rec.setDisabled(False)
+                self.tabs.setTabEnabled(1, False)
+                self.tabs.setTabEnabled(2, False)
             except:
                 self.thread.stop()
                 self.server.stop()
                 self.stopCams()
                 self.server = None
                 self.thread = None
+                self.tabs.setTabEnabled(1, True)
+                self.tabs.setTabEnabled(2, True)
         else:
             self.thread.stop()
             self.thread = None
@@ -670,6 +674,8 @@ class wotApplication(TouchApplication):
             self.stopCams()
             rec.setText('start')
             rec.setDisabled(False)
+            self.tabs.setTabEnabled(1, True)
+            self.tabs.setTabEnabled(2, True)
 
     def update_output(self, index, value, offset=1):
         if self.outputs[index] == self.txt.C_MOTOR:
