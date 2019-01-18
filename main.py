@@ -11,15 +11,13 @@ import os
 from pathlib import Path
 import cv2
 import time
-import base64
 import tornado.web
+from tornado.httpclient import AsyncHTTPClient, HTTPRequest
 from tempfile import TemporaryDirectory
-from copy import copy
-import netifaces
 from TouchStyle import *
 
-# TODO camera -> https://iot.mozilla.org/schemas/#Camera
 # TODO persist last configuration?
+# TODO disable tabs while running
 # https://github.com/ftrobopy/ftrobopy/blob/master/manual.pdf
 
 
@@ -103,6 +101,50 @@ class PressedEvent(webthing.Event):
         webthing.Event.__init__(self, thing, 'pressedEvent' + button)
 
 
+class ReverseProxyHandler(tornado.web.RequestHandler):
+    client = AsyncHTTPClient()
+
+    SUPPORTED_METHODS = [
+        'GET',
+        'POST',
+        'HEAD'
+    ]
+
+    def initialize(self, host):
+        self.host = host
+
+    async def get(self, *args):
+        body = self.request.body
+        if not body:
+            body = None
+
+        # X-Forwarded-For or similar headers
+        req = HTTPRequest(
+            url='http://' + self.host + '/' + args[0] + '?' + self.request.query,
+            headers=self.request.headers,
+            body=body,
+            method=self.request.method
+        )
+        response = await self.client.fetch(req)
+        self.set_status(response.code, response.reason)
+        for header, v in response.headers.get_all():
+            if header is 'Content-Type':
+                self.set_header(header, v)
+            elif header not in ('Content-Length', 'Transfer-Encoding', 'Content-Encoding', 'Connection'):
+                self.add_header(header, v)
+        if response.body:
+            self.set_header('Content-Length', len(response.body))
+            # TODO re-write /favicon.ico, / etc.
+            self.write(response.body)
+        self.finish()
+
+    async def post(self, *args):
+        return self.get(*args)
+
+    async def head(self, *args):
+        return self.get(*args)
+
+
 class ServerThread(threading.Thread):
     def __init__(self, server):
         super(ServerThread, self).__init__()
@@ -112,6 +154,7 @@ class ServerThread(threading.Thread):
         self.event_loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.event_loop)
         self.server.start()
+
 
     def stop(self):
         self.server.stop()
@@ -180,8 +223,7 @@ class wotApplication(TouchApplication):
                 ['MultiLevelSwitch'],
                 'fischertechnik TXT ' + str(self.txt.getVersionNumber())
             )
-            ip = netifaces.ifaddresses('wlan0')[netifaces.AF_INET][0]['addr']
-            self.thing.set_ui_href('http://' + ip + '/')
+            self.thing.set_ui_href('/cfw/')
             self.server = None
             self.thing.txt = self.txt
             self.timer = QTimer(self)
@@ -594,6 +636,13 @@ class wotApplication(TouchApplication):
                             tornado.web.StaticFileHandler,
                             {
                                 'path': self.temp_dir.name
+                            }
+                        ),
+                        (
+                            r'/cfw/(.*)',
+                            ReverseProxyHandler,
+                            {
+                                'host': 'localhost'
                             }
                         )
                     ]

@@ -1,6 +1,6 @@
 # Web of TXT
 
-Basic mapping layer between a [fischertechnik TXT](https://www.fischertechnik.de/de-de/produkte/spielen/robotics/522429-robotics-txt-controller) and the [Web of Things](https://iot.mozilla.org/things/). Runs
+Basic mapping layer between a [fischertechnik Robo TXT Controller](https://www.fischertechnik.de/en/products/playing/robotics/522429-robotics-txt-controller) and the [Web of Things](https://iot.mozilla.org/things/). Runs
 on the [community firmware](https://cfw.ftcommunity.de/ftcommunity-TXT).
 
 ## Adapted I/O
@@ -12,11 +12,11 @@ on the [community firmware](https://cfw.ftcommunity.de/ftcommunity-TXT).
 - Input voltage
 - Reference voltage
 - TXT system temperature
+- Camera
 
 ### Potential I/O
 
-- Camera
-- I2C things
+- I2C sensors
 
 ## Build
 
