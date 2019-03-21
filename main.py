@@ -382,6 +382,7 @@ class wotApplication(TouchApplication):
             rawType = 'string'
             self.inputs[index] = (self.txt.C_VOLTAGE, self.txt.C_ANALOG)
             semanticType = 'ColorProperty'
+            self.addCapability('ColorControl')
 
         self.sensors[index] = type
         value = webthing.Value(self.getSensorValue(index, type))
